@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>ORBITAL AR</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Share+Tech+Mono&display=swap');
+
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+
+body {
+background:#000;
+overflow:hidden;
+width:100vw; height:100dvh;
+font-family:'Share Tech Mono',monospace;
+touch-action:none;
+}
+
+/* カメラ映像 */
+#video {
+position:fixed; inset:0;
+width:100%; height:100%;
+object-fit:cover;
+display:none;
+}
+
+/* AR オーバーレイ canvas */
+#ar-canvas {
+position:fixed; inset:0;
+width:100%; height:100%;
+touch-action:none;
+}
+
+/* ── HUD ── */
+#hud { position:fixed; inset:0; pointer-events:none; }
+
+/* タイトル */
+#title {
+position:absolute;
+top:env(safe-area-inset-top,0px);
+left:0; right:0;
+text-align:center;
+padding-top:14px;
+}
+#title h1 {
+font-family:'Orbitron',sans-serif;
+font-size:clamp(15px,4vw,20px);
+font-weight:700;
+letter-spacing:8px;
+color:#fff;
+text-shadow:0 0 20px rgba(100,200,255,0.8),0 0 50px rgba(60,140,255,0.3);
+}
+#title .sub { font-size:8px; letter-spacing:3px; color:rgba(80,160,220,0.5); margin-top:2px; }
+
+/* コンパスバー */
+#compass-bar {
+position:absolute;
+top:calc(env(safe-area-inset-top,0px) + 70px);
+left:10%; right:10%;
+height:28px;
+background:rgba(0,8,24,0.7);
+border:1px solid rgba(60,120,200,0.3);
+border-radius:3px;
+overflow:hidden;
+backdrop-filter:blur(4px);
+}
+#compass-tape {
+position:absolute;
+top:0; height:100%;
+white-space:nowrap;
+font-size:9px;
+letter-spacing:0px;
+color:rgba(100,180,255,0.7);
+display:flex;
+align-items:center;
+transition: none;
+will-change: transform;
+}
+#compass-center {
+position:absolute;
+top:0; left:50%; bottom:0;
+width:1px;
+background:rgba(0,200,255,0.8);
+box-shadow:0 0 6px rgba(0,200,255,0.6);
+}
+#heading-val {
+position:absolute;
+top:calc(env(safe-area-inset-top,0px) + 100px);
+left:50%; transform:translateX(-50%);
+font-family:'Orbitron',sans-serif;
+font-size:11px;
+color:rgba(0,220,255,0.8);
+letter-spacing:2px;
+text-align:center;
+}
+
+/* 時計 */
+#clock-wrap {
+position:absolute;
+top:env(safe-area-inset-top,0px);
+right:14px; padding-top:14px;
+text-align:right;
+}
+#clock { font-family:'Orbitron',sans-serif; font-size:11px; color:rgba(100,180,255,0.7); }
+#utc-lbl { font-size:7px; color:rgba(60,120,180,0.4); letter-spacing:2px; }
+
+/* 下部ステータス */
+#bottom {
+position:absolute; bottom:0; left:0; right:0;
+padding:10px 16px calc(env(safe-area-inset-bottom,0px)+12px);
+background:linear-gradient(0deg,rgba(0,0,0,0.85) 0%,transparent 100%);
+display:flex; justify-content:space-between; align-items:flex-end;
+}
+.sb { text-align:center; }
+.sv {
+font-family:'Orbitron',sans-serif;
+font-size:clamp(13px,3.5vw,18px);
+font-weight:700; display:block;
+text-shadow:0 0 10px currentColor;
+}
+.sl { font-size:7px; letter-spacing:2px; color:rgba(120,160,200,0.5); margin-top:2px; display:block; }
+.c-leo{color:#4dcfff} .c-meo{color:#44ffaa} .c-geo{color:#ffd044} .c-heo{color:#ff7744}
+
+/* 初期画面 */
+#start-screen {
+position:fixed; inset:0;
+background:radial-gradient(ellipse at center, #000a1e 0%, #000308 100%);
+display:flex; flex-direction:column;
+align-items:center; justify-content:center;
+z-index:100;
+gap:24px;
+padding:30px;
+}
+#start-screen h2 {
+font-family:'Orbitron',sans-serif;
+font-size:clamp(20px,6vw,28px);
+letter-spacing:10px;
+color:#fff;
+text-shadow:0 0 30px rgba(100,200,255,0.7),0 0 80px rgba(60,120,255,0.3);
+text-align:center;
+}
+#start-screen p {
+font-size:11px; color:rgba(100,160,220,0.7);
+text-align:center; line-height:1.8;
+letter-spacing:1px;
+max-width:280px;
+}
+#start-btn {
+background:transparent;
+border:1px solid rgba(0,200,255,0.6);
+color:#00d4ff;
+font-family:'Orbitron',sans-serif;
+font-size:12px; letter-spacing:4px;
+padding:14px 32px;
+cursor:pointer;
+pointer-events:all;
+box-shadow:0 0 20px rgba(0,200,255,0.2);
+transition:all 0.3s;
+}
+#start-btn:active { background:rgba(0,200,255,0.15); }
+
+/* ローディング */
+#loading {
+position:fixed; inset:0;
+background:rgba(0,5,15,0.92);
+display:none; flex-direction:column;
+align-items:center; justify-content:center;
+z-index:90; gap:16px;
+}
+#loading p { font-size:11px; color:rgba(80,160,220,0.8); letter-spacing:3px; }
+#load-bar-wrap { width:240px; height:2px; background:rgba(40,80,120,0.5); }
+#load-bar { height:100%; background:linear-gradient(90deg,#00d4ff,#44ffaa); width:0%; transition:width 0.3s; box-shadow:0 0 8px #00d4ff; }
+
+/* エラー */
+#error-msg {
+position:fixed; inset:0;
+display:none; align-items:center; justify-content:center;
+background:rgba(0,0,0,0.9); z-index:200;
+color:#ff7744; font-size:12px; text-align:center;
+padding:30px; line-height:1.8;
+}
+
+/* 衛星タップ情報 */
+#sat-popup {
+position:absolute;
+background:rgba(0,6,22,0.93);
+border:1px solid rgba(80,160,255,0.4);
+border-radius:6px;
+padding:12px 18px;
+display:none;
+min-width:160px;
+backdrop-filter:blur(10px);
+pointer-events:none;
+transform:translate(-50%,-110%);
+}
+.sp-name { font-family:'Orbitron',sans-serif; font-size:11px; color:#7dd4ff; margin-bottom:6px; }
+.sp-row  { font-size:9px; color:rgba(160,200,230,0.8); margin-bottom:2px; }
+.sp-orbit { margin-top:6px; font-size:8px; letter-spacing:2px; padding:2px 8px; border-radius:2px; display:inline-block; }
+
+/* スキャンライン */
+body::after {
+content:''; position:fixed; inset:0;
+background:repeating-linear-gradient(0deg,transparent 0,transparent 3px,rgba(0,0,0,0.025) 3px,rgba(0,0,0,0.025) 4px);
+pointer-events:none; z-index:60;
+}
+</style>
+
+</head>
+<body>
+
+<video id="video" autoplay playsinline muted></video>
+<canvas id="ar-canvas"></canvas>
+
+<!-- 初期画面 -->
+
+<div id="start-screen">
+  <h2>ORBITAL AR</h2>
+  <p>カメラと方位センサーを使って<br>空にある衛星をリアルタイムで表示します</p>
+  <p style="font-size:9px;color:rgba(80,120,160,0.5)">カメラ・センサーの許可が必要です<br>HTTPS環境が必要です</p>
+  <button id="start-btn" onclick="startApp()">START</button>
+</div>
+
+<!-- ローディング -->
+
+<div id="loading">
+  <p id="load-msg">初期化中...</p>
+  <div id="load-bar-wrap"><div id="load-bar"></div></div>
+</div>
+
+<div id="error-msg"></div>
+
+<div id="hud">
+  <div id="title">
+    <h1>ORBITAL AR</h1>
+    <div class="sub">POINT YOUR PHONE AT THE SKY</div>
+  </div>
+
+  <div id="clock-wrap">
+    <div id="clock">00:00:00</div>
+    <div id="utc-lbl">UTC</div>
+  </div>
+
+  <div id="compass-bar">
+    <div id="compass-tape"></div>
+    <div id="compass-center"></div>
+  </div>
+  <div id="heading-val">--- °</div>
+
+  <div id="bottom">
+    <div class="sb"><span class="sv c-leo" id="s-leo">—</span><span class="sl">LEO</span></div>
+    <div class="sb"><span class="sv c-meo" id="s-meo">—</span><span class="sl">MEO</span></div>
+    <div class="sb">
+      <span class="sv" style="color:#fff;font-size:clamp(16px,4.5vw,22px)" id="s-visible">—</span>
+      <span class="sl" style="color:rgba(180,210,255,0.45)">VISIBLE</span>
+    </div>
+    <div class="sb"><span class="sv c-geo" id="s-geo">—</span><span class="sl">GEO</span></div>
+    <div class="sb"><span class="sv c-heo" id="s-heo">—</span><span class="sl">HEO</span></div>
+  </div>
+
+  <div id="sat-popup">
+    <div class="sp-name" id="sp-name">—</div>
+    <div class="sp-row"  id="sp-alt">高度: —</div>
+    <div class="sp-row"  id="sp-az">方位: —</div>
+    <div class="sp-row"  id="sp-el">仰角: —</div>
+    <div class="sp-orbit" id="sp-orbit">—</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/satellite.js/4.0.0/satellite.min.js"></script>
+
+<script>
+// ═══════════════════════════════════════
+//  ORBITAL AR
+// ═══════════════════════════════════════
+
+const DEG = Math.PI / 180;
+const RAD = 180 / Math.PI;
+
+// 観測者位置（GPS取得 or フォールバック）
+let observer = { lat: 35.0, lon: 136.9, alt: 0 }; // 愛知県付近デフォルト
+
+// センサー値
+let deviceAzimuth  = 0;  // 真北からの方位 (deg, 0-360)
+let devicePitch    = 0;  // 仰角方向の傾き (deg, -90〜90)
+let deviceRoll     = 0;
+
+// 衛星データ
+let satellites = [];
+let lastTleUpdate = 0;
+const TLE_UPDATE_INTERVAL = 10 * 60 * 1000; // 10分
+
+// Canvas / ctx
+const canvas = document.getElementById('ar-canvas');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0;
+
+// FOV (deg)
+const FOV_H = 60;
+let FOV_V = 60;
+
+// ── リサイズ ──
+function resize() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  FOV_V = FOV_H * (H / W);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+//  起動
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+async function startApp() {
+  document.getElementById('start-screen').style.display = 'none';
+  const ld = document.getElementById('loading');
+  ld.style.display = 'flex';
+
+  setLoad('位置情報を取得中...', 5);
+  await getLocation();
+
+  setLoad('カメラを起動中...', 20);
+  await startCamera();
+
+  setLoad('方位センサーを起動中...', 35);
+  await startSensors();
+
+  setLoad('衛星データを取得中...', 50);
+  await fetchTLE();
+
+  setLoad('完了', 100);
+  setTimeout(() => { ld.style.display = 'none'; }, 400);
+
+  requestAnimationFrame(loop);
+  setInterval(updateClock, 1000);
+  setInterval(() => fetchTLE(), TLE_UPDATE_INTERVAL);
+}
+
+function setLoad(msg, pct) {
+  document.getElementById('load-msg').textContent = msg;
+  document.getElementById('load-bar').style.width = pct + '%';
+}
+
+function showError(msg) {
+  const el = document.getElementById('error-msg');
+  el.innerHTML = msg + '<br><br><span style="font-size:10px;color:rgba(255,120,80,0.6)">タップして閉じる</span>';
+  el.style.display = 'flex';
+  el.onclick = () => el.style.display = 'none';
+  document.getElementById('loading').style.display = 'none';
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+//  位置情報
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+function getLocation() {
+  return new Promise(resolve => {
+    if (!navigator.geolocation) { resolve(); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        observer.lat = pos.coords.latitude;
+        observer.lon = pos.coords.longitude;
+        observer.alt = (pos.coords.altitude || 0) / 1000; // km
+        resolve();
+      },
+      () => resolve(), // 失敗してもデフォルト値で続行
+      { timeout: 8000, enableHighAccuracy: false }
+    );
+  });
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+//  カメラ
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+async function startCamera() {
+  const video = document.getElementById('video');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+    video.srcObject = stream;
+    video.style.display = 'block';
+    await new Promise(r => video.addEventListener('loadedmetadata', r, { once: true }));
+  } catch (e) {
+    // カメラなしでも動く（黒背景）
+    console.warn('Camera unavailable:', e);
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+//  センサー
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+async function startSensors() {
+  // iOS 13+ は許可が必要
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try {
+      const perm = await DeviceOrientationEvent.requestPermission();
+      if (perm !== 'granted') {
+        showError('センサーの許可が得られませんでした。<br>設定 → Safari → モーションと画面の向き をオンにしてください。');
+        return;
+      }
+    } catch (e) {
+      showError('センサー許可エラー: ' + e.message);
+      return;
+    }
+  }
+
+  window.addEventListener('deviceorientationabsolute', onOrientation, true);
+  window.addEventListener('deviceorientation', onOrientation, true);
+}
+
+let useAbsolute = false;
+function onOrientation(e) {
+  // absolute優先
+  if (e.type === 'deviceorientationabsolute') useAbsolute = true;
+  if (e.type === 'deviceorientation' && useAbsolute) return;
+
+  if (e.alpha === null) return;
+
+  // alpha: 真北からの回転 (0-360, 反時計回り) → 方位角
+  // iOS: compassHeading が使えるなら使う
+  if (e.webkitCompassHeading !== undefined) {
+    deviceAzimuth = e.webkitCompassHeading; // iOSは既に真北基準
+  } else {
+    deviceAzimuth = (360 - e.alpha) % 360;
+  }
+
+  // beta: 前後の傾き (-180〜180)  縦持ち時 beta≈90 が水平
+  // スマホを縦に持って空に向けると beta が 0〜90 に
+  // 仰角 = beta - 90 (縦持ち基準)
+  devicePitch = (e.beta || 0) - 90;
+  deviceRoll  = e.gamma || 0;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+//  TLE取得
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+async function fetchTLE() {
+  const gpUrl = 'https://celestrak.org/GPROC/gp.php?GROUP=active&FORMAT=json';
+  const proxy = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(gpUrl);
+
+  let data;
+  try {
+    const res = await fetch(proxy, { signal: AbortSignal.timeout(30000) });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    data = await res.json();
+  } catch (e) {
+    try {
+      const res2 = await fetch(gpUrl, { signal: AbortSignal.timeout(20000) });
+      data = await res2.json();
+    } catch (e2) {
+      if (satellites.length === 0) {
+        showError('衛星データの取得に失敗しました。<br>ネットワーク接続を確認してください。<br>' + e2.message);
+      }
+      return;
+    }
+  }
+
+  satellites = [];
+  for (const gp of data) {
+    try {
+      const satrec = satellite.twoline2satrec(gp.TLE_LINE1, gp.TLE_LINE2);
+      satellites.push({ satrec, name: gp.OBJECT_NAME || '不明' });
+    } catch (_) {}
+  }
+  lastTleUpdate = Date.now();
+  updateStats();
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+//  衛星の方位・仰角を計算
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+function getSatAzEl(satrec, date) {
+  try {
+    const pv = satellite.propagate(satrec, date);
+    if (!pv.position) return null;
+
+    const gmst = satellite.gstime(date);
+    const geo   = satellite.eciToGeodetic(pv.position, gmst);
+    const altKm = geo.height;
+
+    // ECI → 観測者座標系 → 方位角・仰角
+    const obsGd = {
+      longitude: observer.lon * DEG,
+      latitude:  observer.lat * DEG,
+      height:    observer.alt
+    };
+    const lookAngles = satellite.ecfToLookAngles(obsGd,
+      satellite.eciToEcf(pv.position, gmst));
+
+    const az = lookAngles.azimuth * RAD;   // 0-360
+    const el = lookAngles.elevation * RAD; // -90〜90
+
+    // 軌道種別
+    let orbitClass = 'HEO';
+    if (altKm < 2000)            orbitClass = 'LEO';
+    else if (altKm < 35286)      orbitClass = 'MEO';
+    else if (altKm < 36286)      orbitClass = 'GEO';
+
+    return { az: (az + 360) % 360, el, altKm, orbitClass };
+  } catch (_) { return null; }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+//  AR投影: 方位角・仰角 → 画面座標
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+function projectToScreen(az, el) {
+  // カメラが向いている方向との差分
+  let dAz = az - deviceAzimuth;
+  // -180〜180 に正規化
+  if (dAz >  180) dAz -= 360;
+  if (dAz < -180) dAz += 360;
+
+  const dEl = el - devicePitch;
+
+  // FOV外ならnull
+  if (Math.abs(dAz) > FOV_H / 2 + 5) return null;
+  if (Math.abs(dEl) > FOV_V / 2 + 5) return null;
+
+  const x = W / 2 + (dAz / (FOV_H / 2)) * (W / 2);
+  const y = H / 2 - (dEl / (FOV_V / 2)) * (H / 2);
+
+  return { x, y, dAz, dEl };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+//  統計更新
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+let statsCache = { LEO:0, MEO:0, GEO:0, HEO:0, visible:0 };
+let statsTimer = 0;
+
+function updateStats() {
+  if (satellites.length === 0) return;
+  const now = new Date();
+  const c = { LEO:0, MEO:0, GEO:0, HEO:0 };
+  for (const sat of satellites) {
+    const r = getSatAzEl(sat.satrec, now);
+    if (r) c[r.orbitClass]++;
+  }
+  statsCache = c;
+  document.getElementById('s-leo').textContent = c.LEO;
+  document.getElementById('s-meo').textContent = c.MEO;
+  document.getElementById('s-geo').textContent = c.GEO;
+  document.getElementById('s-heo').textContent = c.HEO;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+//  描画
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+const ORBIT_STYLE = {
+  LEO: { color:'#4dcfff', glow:'rgba(77,207,255,', r:5 },
+  MEO: { color:'#44ffaa', glow:'rgba(68,255,170,', r:5 },
+  GEO: { color:'#ffd044', glow:'rgba(255,208,68,',  r:6 },
+  HEO: { color:'#ff7744', glow:'rgba(255,119,68,',  r:5 },
+};
+
+// タップ検出用
+let visibleSats = []; // { x, y, sat, result }
+let popupTimer = null;
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  if (satellites.length === 0) {
+    ctx.fillStyle = 'rgba(100,160,220,0.4)';
+    ctx.font = '11px Share Tech Mono';
+    ctx.textAlign = 'center';
+    ctx.fillText('衛星データ読み込み中...', W/2, H/2);
+    return;
+  }
+
+  const now = new Date();
+  visibleSats = [];
+  let visCount = 0;
+
+  // 地平線インジケーター（仰角0°ライン）
+  const horizY = H/2 - ((-devicePitch) / (FOV_V/2)) * (H/2);
+  if (horizY >= 0 && horizY <= H) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0,180,120,0.25)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 8]);
+    ctx.beginPath();
+    ctx.moveTo(0, horizY);
+    ctx.lineTo(W, horizY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(0,200,140,0.4)';
+    ctx.font = '8px Share Tech Mono';
+    ctx.fillText('HORIZON  0°', 10, horizY - 4);
+    ctx.restore();
+  }
+
+  // 各衛星を描画
+  for (const sat of satellites) {
+    const r = getSatAzEl(sat.satrec, now);
+    if (!r) continue;
+
+    const sc = projectToScreen(r.az, r.el);
+    if (!sc) continue;
+
+    visCount++;
+    visibleSats.push({ x:sc.x, y:sc.y, sat, result:r });
+
+    const st = ORBIT_STYLE[r.orbitClass];
+
+    // グロー（外側）
+    const grad = ctx.createRadialGradient(sc.x, sc.y, 0, sc.x, sc.y, 18);
+    grad.addColorStop(0,   st.glow + '0.25)');
+    grad.addColorStop(0.4, st.glow + '0.10)');
+    grad.addColorStop(1,   st.glow + '0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(sc.x, sc.y, 18, 0, Math.PI*2);
+    ctx.fill();
+
+    // コア点
+    ctx.fillStyle = st.color;
+    ctx.shadowColor = st.color;
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.arc(sc.x, sc.y, st.r, 0, Math.PI*2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // 衛星名ラベル（仰角15度以上の主要なものだけ）
+    if (r.el > 15) {
+      ctx.fillStyle = 'rgba(200,230,255,0.75)';
+      ctx.font = '9px Share Tech Mono';
+      ctx.textAlign = 'left';
+      ctx.fillText(sat.name.substring(0,12), sc.x + 8, sc.y - 6);
+      ctx.fillStyle = 'rgba(140,180,220,0.5)';
+      ctx.font = '8px Share Tech Mono';
+      ctx.fillText(Math.round(r.altKm).toLocaleString() + 'km', sc.x + 8, sc.y + 6);
+    }
+  }
+
+  // 画面中央の照準
+  const cx = W/2, cy = H/2;
+  const cs = 20;
+  ctx.strokeStyle = 'rgba(0,200,255,0.5)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cx-cs, cy); ctx.lineTo(cx+cs, cy);
+  ctx.moveTo(cx, cy-cs); ctx.lineTo(cx, cy+cs);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(0,200,255,0.25)';
+  ctx.beginPath();
+  ctx.arc(cx, cy, cs*0.8, 0, Math.PI*2);
+  ctx.stroke();
+
+  // 視野内の衛星数
+  document.getElementById('s-visible').textContent = visCount;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+//  コンパスバー
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+const COMPASS_DIRS = ['N','NE','E','SE','S','SW','W','NW'];
+function buildCompassTape() {
+  const tape = document.getElementById('compass-tape');
+  // 0〜720度分のテープを作る（ループ用）
+  let html = '';
+  for (let i = 0; i <= 720; i += 10) {
+    const deg = i % 360;
+    const isDir = deg % 45 === 0;
+    const label = isDir ? COMPASS_DIRS[deg/45] : (deg % 30 === 0 ? deg + '°' : '·');
+    html += `<span style="display:inline-block;width:${isDir?28:20}px;text-align:center;
+      color:${isDir?'rgba(0,210,255,0.9)':'rgba(80,140,200,0.5)'};
+      font-size:${isDir?10:8}px;">${label}</span>`;
+  }
+  tape.innerHTML = html;
+}
+
+function updateCompass() {
+  const tape = document.getElementById('compass-tape');
+  // テープの幅は概算（1度あたり約2px）
+  const pxPerDeg = 2;
+  const offset = deviceAzimuth * pxPerDeg;
+  tape.style.transform = `translateX(calc(50% - ${offset}px))`;
+
+  const az = Math.round(deviceAzimuth);
+  const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  const dir = dirs[Math.round(az / 22.5) % 16];
+  document.getElementById('heading-val').textContent =
+    String(az).padStart(3,'0') + '° ' + dir +
+    '  ↑' + (devicePitch >= 0 ? '+' : '') + Math.round(devicePitch) + '°';
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+//  タップで衛星情報
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+canvas.addEventListener('click', e => {
+  const rect = canvas.getBoundingClientRect();
+  const tx = e.clientX - rect.left;
+  const ty = e.clientY - rect.top;
+
+  let nearest = null, minD = 40;
+  for (const vs of visibleSats) {
+    const d = Math.hypot(vs.x - tx, vs.y - ty);
+    if (d < minD) { minD = d; nearest = vs; }
+  }
+
+  const popup = document.getElementById('sat-popup');
+  if (nearest) {
+    const r = nearest.result;
+    document.getElementById('sp-name').textContent = nearest.sat.name;
+    document.getElementById('sp-alt').textContent  = '高度: ' + Math.round(r.altKm).toLocaleString() + ' km';
+    document.getElementById('sp-az').textContent   = '方位: ' + Math.round(r.az) + '°';
+    document.getElementById('sp-el').textContent   = '仰角: ' + Math.round(r.el) + '°';
+    const ob = document.getElementById('sp-orbit');
+    const bg={LEO:'rgba(77,207,255,0.15)',MEO:'rgba(68,255,170,0.15)',GEO:'rgba(255,208,68,0.15)',HEO:'rgba(255,119,68,0.15)'};
+    const tc={LEO:'#4dcfff',MEO:'#44ffaa',GEO:'#ffd044',HEO:'#ff7744'};
+    ob.textContent = r.orbitClass;
+    ob.style.background = bg[r.orbitClass];
+    ob.style.color = tc[r.orbitClass];
+    ob.style.border = '1px solid ' + tc[r.orbitClass] + '44';
+    popup.style.left = nearest.x + 'px';
+    popup.style.top  = nearest.y + 'px';
+    popup.style.display = 'block';
+    clearTimeout(popupTimer);
+    popupTimer = setTimeout(() => popup.style.display='none', 4000);
+  } else {
+    popup.style.display = 'none';
+  }
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+//  時計
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+function updateClock() {
+  const n = new Date();
+  document.getElementById('clock').textContent =
+    String(n.getUTCHours()).padStart(2,'0')+':'+
+    String(n.getUTCMinutes()).padStart(2,'0')+':'+
+    String(n.getUTCSeconds()).padStart(2,'0');
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+//  メインループ
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+buildCompassTape();
+
+let statsInterval = 0;
+function loop() {
+  requestAnimationFrame(loop);
+  draw();
+  updateCompass();
+  statsInterval++;
+  if (statsInterval % 300 === 0) updateStats(); // 約5秒ごと
+}
+</script>
+
+</body>
+</html>
