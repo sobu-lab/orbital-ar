@@ -816,7 +816,7 @@ function updatePinnedList() {
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;padding:2px 0;border-bottom:1px solid rgba(42,74,106,0.4)';
     row.innerHTML = `<span style="color:var(--accent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px" title="${sat.name}">${sat.name}</span>`
-      + `<span style="color:var(--accent2);cursor:pointer;flex-shrink:0;margin-left:6px" onclick="removePinnedOrbit(${satnum})">✕</span>`;
+      + `<span style="color:var(--accent2);cursor:pointer;flex-shrink:0;margin-left:6px" onclick="removePinnedOrbit('${satnum}')">✕</span>`;
     list.appendChild(row);
   }
 }
