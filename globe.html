@@ -711,6 +711,14 @@ function updatePositions() {
   satPoints.geometry.attributes.position.needsUpdate = true;
   satPoints.geometry.attributes.color.needsUpdate = true;
 
+  // Recalculate pinned orbit lines so the arc always starts at the satellite's current position
+  for (const [satnum, entry] of pinnedOrbits) {
+    if (entry.line) { scene.remove(entry.line); entry.line.geometry.dispose(); }
+    const color = ORBIT_COLORS[entry.sat.orbitClass || 'LEO'];
+    const newLine = createOrbitLine(entry.sat.satrec, color, 0.85);
+    if (newLine) { scene.add(newLine); entry.line = newLine; }
+  }
+
   document.getElementById('stat-total').textContent = valid.toLocaleString();
   document.getElementById('stat-leo').textContent = counts.LEO.toLocaleString();
   document.getElementById('stat-meo').textContent = counts.MEO.toLocaleString();
