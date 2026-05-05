@@ -356,13 +356,13 @@ function initScene() {
   starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
   scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.3, sizeAttenuation: true })));
 
-  // 地球（テクスチャ付き）
+  // 地球（照明の影響を受けないMeshBasicMaterialで均一に表示）
   const earthGeo = new THREE.SphereGeometry(EARTH_R_UNIT, 64, 64);
-  const earthMat = new THREE.MeshPhongMaterial({ color: 0x226699, specular: 0x112244, shininess: 15 });
+  const earthMat = new THREE.MeshBasicMaterial({ color: 0x226699 });
   earthMesh = new THREE.Mesh(earthGeo, earthMat);
   scene.add(earthMesh);
 
-  // 地球テクスチャを非同期で読み込み（読み込めたら適用）
+  // 地球テクスチャを非同期で読み込み
   new THREE.TextureLoader().load(
     'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg',
     tex => { earthMat.map = tex; earthMat.color.set(0xffffff); earthMat.needsUpdate = true; }
