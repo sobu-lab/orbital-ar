@@ -684,7 +684,6 @@ let counts = { LEO: 0, MEO: 0, GEO: 0, HEO: 0 };
 function updatePositions() {
   if (!satPoints) return;
   const now = new Date();
-  const gmst = satellite.gstime(now);
   counts = { LEO: 0, MEO: 0, GEO: 0, HEO: 0 };
   let valid = 0;
 
@@ -693,15 +692,13 @@ function updatePositions() {
     try {
       const pv = satellite.propagate(sat.satrec, now);
       if (!pv.position) { satPositions[i*3] = satPositions[i*3+1] = satPositions[i*3+2] = 0; continue; }
-      const geo = satellite.eciToGeodetic(pv.position, gmst);
-      const altKm = geo.height;
-      const r = (EARTH_RADIUS + altKm) * SCALE;
-      const cosLat = Math.cos(geo.latitude);
+      const p = pv.position;
+      const altKm = Math.sqrt(p.x*p.x + p.y*p.y + p.z*p.z) - EARTH_RADIUS;
       sat.orbitClass = classifyOrbit(altKm);
       counts[sat.orbitClass]++;
-      satPositions[i*3]   = r * cosLat * Math.cos(geo.longitude);
-      satPositions[i*3+1] = r * Math.sin(geo.latitude);
-      satPositions[i*3+2] = -r * cosLat * Math.sin(geo.longitude);
+      satPositions[i*3]   = p.x * SCALE;
+      satPositions[i*3+1] = p.z * SCALE;
+      satPositions[i*3+2] = p.y * SCALE;
       const c = pinnedOrbits.has(sat.satrec.satnum) ? HIGHLIGHT_COLOR : ORBIT_COLORS[sat.orbitClass];
       satColors[i*3] = c.r; satColors[i*3+1] = c.g; satColors[i*3+2] = c.b;
       valid++;
@@ -712,14 +709,6 @@ function updatePositions() {
 
   satPoints.geometry.attributes.position.needsUpdate = true;
   satPoints.geometry.attributes.color.needsUpdate = true;
-
-  // Recalculate pinned orbit lines so the arc always starts at the satellite's current position
-  for (const [satnum, entry] of pinnedOrbits) {
-    if (entry.line) { scene.remove(entry.line); entry.line.geometry.dispose(); }
-    const color = ORBIT_COLORS[entry.sat.orbitClass || 'LEO'];
-    const newLine = createOrbitLine(entry.sat.satrec, color, 0.85);
-    if (newLine) { scene.add(newLine); entry.line = newLine; }
-  }
 
   document.getElementById('stat-total').textContent = valid.toLocaleString();
   document.getElementById('stat-leo').textContent = counts.LEO.toLocaleString();
@@ -737,9 +726,10 @@ function updatePositions() {
 //  軌道ライン
 // ━━━━━━━━━━━━━━━━━━━━━━━━
 function calcOrbitPoints(satrec, numPoints = 180) {
+  // ECI coordinates — orbit is a closed ellipse in inertial space
+  // Center the arc on now so the satellite dot sits at the midpoint
   const periodMs = (2 * Math.PI / satrec.no) * 60 * 1000;
   const now = new Date();
-  // Draw one full period centered on now so the satellite appears at the midpoint of the arc
   const startTime = new Date(now.getTime() - periodMs / 2);
   const pts = [];
   for (let i = 0; i <= numPoints; i++) {
@@ -747,14 +737,10 @@ function calcOrbitPoints(satrec, numPoints = 180) {
     try {
       const pv = satellite.propagate(satrec, t);
       if (pv && pv.position) {
-        const gmst_t = satellite.gstime(t);
-        const geo = satellite.eciToGeodetic(pv.position, gmst_t);
-        const r = (EARTH_RADIUS + geo.height) * SCALE;
-        const cosLat = Math.cos(geo.latitude);
         pts.push(new THREE.Vector3(
-          r * cosLat * Math.cos(geo.longitude),
-          r * Math.sin(geo.latitude),
-          -r * cosLat * Math.sin(geo.longitude)
+          pv.position.x * SCALE,
+          pv.position.z * SCALE,
+          pv.position.y * SCALE
         ));
       }
     } catch (e) { }
@@ -1059,7 +1045,8 @@ function animate(ts) {
   const { radius: r, phi: p, theta: t } = spherical;
   camera.position.set(r*Math.sin(p)*Math.sin(t), r*Math.cos(p), r*Math.sin(p)*Math.cos(t));
   camera.lookAt(0, 0, 0);
-  // Earth is stationary; satellites move in ECEF coordinates
+  // Rotate Earth by current GMST so its texture aligns with ECI satellite positions
+  earthMesh.rotation.y = -satellite.gstime(new Date());
   if (ts - lastUpdate > UPDATE_INTERVAL) { updatePositions(); lastUpdate = ts; }
   updateClock();
   fpsCounter++;
