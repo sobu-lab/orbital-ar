@@ -693,13 +693,15 @@ function updatePositions() {
     try {
       const pv = satellite.propagate(sat.satrec, now);
       if (!pv.position) { satPositions[i*3] = satPositions[i*3+1] = satPositions[i*3+2] = 0; continue; }
-      const ecef = satellite.eciToEcf(pv.position, gmst);
-      const altKm = Math.sqrt(ecef.x**2 + ecef.y**2 + ecef.z**2) - EARTH_RADIUS;
+      const geo = satellite.eciToGeodetic(pv.position, gmst);
+      const altKm = geo.height;
+      const r = (EARTH_RADIUS + altKm) * SCALE;
+      const cosLat = Math.cos(geo.latitude);
       sat.orbitClass = classifyOrbit(altKm);
       counts[sat.orbitClass]++;
-      satPositions[i*3]   = ecef.x * SCALE;
-      satPositions[i*3+1] = ecef.z * SCALE;
-      satPositions[i*3+2] = -ecef.y * SCALE;
+      satPositions[i*3]   = r * cosLat * Math.cos(geo.longitude);
+      satPositions[i*3+1] = r * Math.sin(geo.latitude);
+      satPositions[i*3+2] = -r * cosLat * Math.sin(geo.longitude);
       const c = pinnedOrbits.has(sat.satrec.satnum) ? HIGHLIGHT_COLOR : ORBIT_COLORS[sat.orbitClass];
       satColors[i*3] = c.r; satColors[i*3+1] = c.g; satColors[i*3+2] = c.b;
       valid++;
@@ -735,21 +737,24 @@ function updatePositions() {
 //  軌道ライン
 // ━━━━━━━━━━━━━━━━━━━━━━━━
 function calcOrbitPoints(satrec, numPoints = 180) {
-  // SGP4で現在時刻から1周期分を伝播 → 始点が現在の衛星位置と必ず一致する
-  const periodMs = (2 * Math.PI / satrec.no) * 60 * 1000; // msに変換
+  const periodMs = (2 * Math.PI / satrec.no) * 60 * 1000;
   const now = new Date();
+  // Draw one full period centered on now so the satellite appears at the midpoint of the arc
+  const startTime = new Date(now.getTime() - periodMs / 2);
   const pts = [];
   for (let i = 0; i <= numPoints; i++) {
-    const t = new Date(now.getTime() + (i / numPoints) * periodMs);
+    const t = new Date(startTime.getTime() + (i / numPoints) * periodMs);
     try {
       const pv = satellite.propagate(satrec, t);
       if (pv && pv.position) {
         const gmst_t = satellite.gstime(t);
-        const ecef = satellite.eciToEcf(pv.position, gmst_t);
+        const geo = satellite.eciToGeodetic(pv.position, gmst_t);
+        const r = (EARTH_RADIUS + geo.height) * SCALE;
+        const cosLat = Math.cos(geo.latitude);
         pts.push(new THREE.Vector3(
-          ecef.x * SCALE,
-          ecef.z * SCALE,
-          -ecef.y * SCALE
+          r * cosLat * Math.cos(geo.longitude),
+          r * Math.sin(geo.latitude),
+          -r * cosLat * Math.sin(geo.longitude)
         ));
       }
     } catch (e) { }
