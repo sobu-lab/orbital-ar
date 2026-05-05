@@ -684,6 +684,7 @@ let counts = { LEO: 0, MEO: 0, GEO: 0, HEO: 0 };
 function updatePositions() {
   if (!satPoints) return;
   const now = new Date();
+  const gmst = satellite.gstime(now);
   counts = { LEO: 0, MEO: 0, GEO: 0, HEO: 0 };
   let valid = 0;
 
@@ -692,13 +693,13 @@ function updatePositions() {
     try {
       const pv = satellite.propagate(sat.satrec, now);
       if (!pv.position) { satPositions[i*3] = satPositions[i*3+1] = satPositions[i*3+2] = 0; continue; }
-      const p = pv.position;
-      const altKm = Math.sqrt(p.x*p.x + p.y*p.y + p.z*p.z) - EARTH_RADIUS;
+      const ecef = satellite.eciToEcf(pv.position, gmst);
+      const altKm = Math.sqrt(ecef.x**2 + ecef.y**2 + ecef.z**2) - EARTH_RADIUS;
       sat.orbitClass = classifyOrbit(altKm);
       counts[sat.orbitClass]++;
-      satPositions[i*3]   = p.x * SCALE;
-      satPositions[i*3+1] = p.z * SCALE;
-      satPositions[i*3+2] = p.y * SCALE;
+      satPositions[i*3]   = ecef.x * SCALE;
+      satPositions[i*3+1] = ecef.z * SCALE;
+      satPositions[i*3+2] = -ecef.y * SCALE;
       const c = pinnedOrbits.has(sat.satrec.satnum) ? HIGHLIGHT_COLOR : ORBIT_COLORS[sat.orbitClass];
       satColors[i*3] = c.r; satColors[i*3+1] = c.g; satColors[i*3+2] = c.b;
       valid++;
@@ -735,10 +736,12 @@ function calcOrbitPoints(satrec, numPoints = 180) {
     try {
       const pv = satellite.propagate(satrec, t);
       if (pv && pv.position) {
+        const gmst_t = satellite.gstime(t);
+        const ecef = satellite.eciToEcf(pv.position, gmst_t);
         pts.push(new THREE.Vector3(
-          pv.position.x * SCALE,
-          pv.position.z * SCALE,
-          pv.position.y * SCALE
+          ecef.x * SCALE,
+          ecef.z * SCALE,
+          -ecef.y * SCALE
         ));
       }
     } catch (e) { }
@@ -1043,7 +1046,7 @@ function animate(ts) {
   const { radius: r, phi: p, theta: t } = spherical;
   camera.position.set(r*Math.sin(p)*Math.sin(t), r*Math.cos(p), r*Math.sin(p)*Math.cos(t));
   camera.lookAt(0, 0, 0);
-  earthMesh.rotation.y += 0.0001;
+  // Earth is stationary; satellites move in ECEF coordinates
   if (ts - lastUpdate > UPDATE_INTERVAL) { updatePositions(); lastUpdate = ts; }
   updateClock();
   fpsCounter++;
