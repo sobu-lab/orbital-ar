@@ -215,6 +215,18 @@
     margin-bottom: 4px;
   }
   #date-str { font-size: 10px; color: var(--dim); margin-bottom: 14px; }
+
+  .slider-row {
+    margin-bottom: 12px;
+  }
+  .slider-row input[type=range] {
+    width: 100%;
+    accent-color: var(--accent);
+    height: 3px;
+    cursor: pointer;
+    margin-top: 4px;
+  }
+
   .status-bar { margin-bottom: 10px; }
   .status-label { font-size: 9px; color: var(--dim); margin-bottom: 3px; letter-spacing: 2px; }
   .bar-track { height: 3px; background: var(--dim); overflow: hidden; }
@@ -364,6 +376,13 @@
     <div class="panel-title">UTC TIME</div>
     <div id="clock">00:00:00</div>
     <div id="date-str">-</div>
+
+    <div class="slider-row">
+      <div class="status-label">SAT SIZE <span id="size-val">S</span></div>
+      <input type="range" id="size-slider" min="1" max="10" value="3"
+             oninput="onSizeSlider(this.value)">
+    </div>
+
     <div class="status-bar">
       <div class="status-label">DATA FEED</div>
       <div class="bar-track"><div class="bar-fill" id="feed-bar" style="width:0%"></div></div>
@@ -373,7 +392,11 @@
       <div class="bar-track"><div class="bar-fill" id="fps-bar" style="width:0%;background:linear-gradient(90deg,#ff6b35,#ffcc00)"></div></div>
     </div>
     <div class="stat-row" style="margin-top:10px"><span class="stat-label">FPS</span><span class="stat-val" id="fps-val">-</span></div>
-    <div class="stat-row"><span class="stat-label">UPDATE</span><span class="stat-val">5s</span></div>
+
+    <div id="pinned-list-wrap" style="display:none;margin-top:12px;border-top:1px solid var(--dim);padding-top:10px">
+      <div class="panel-title">PINNED ORBITS</div>
+      <div id="pinned-list" style="font-size:9px;color:var(--text);max-height:120px;overflow-y:auto"></div>
+    </div>
   </div>
 
   <div id="hover-info">
@@ -667,7 +690,7 @@ function updatePositions() {
       satPositions[i*3]   = p.x * SCALE;
       satPositions[i*3+1] = p.z * SCALE;
       satPositions[i*3+2] = p.y * SCALE;
-      const c = ORBIT_COLORS[sat.orbitClass];
+      const c = pinnedOrbits.has(sat.satrec.satnum) ? HIGHLIGHT_COLOR : ORBIT_COLORS[sat.orbitClass];
       satColors[i*3] = c.r; satColors[i*3+1] = c.g; satColors[i*3+2] = c.b;
       valid++;
     } catch (e) {
@@ -744,7 +767,7 @@ function showHoverOrbit(sat) {
   hideHoverOrbit();
   hoveredSatNum = sat.satrec.satnum;
   // 固定済みなら別途表示不要
-  if (pinnedOrbits.has(hoveredSatNum)) return;
+  if (pinnedOrbits.has(hoveredSatNum)) return; // 固定済みはプレビュー不要
   const color = ORBIT_COLORS[sat.orbitClass || 'LEO'];
   hoverOrbitLine = createOrbitLine(sat.satrec, color, 0.35);
   if (hoverOrbitLine) scene.add(hoverOrbitLine);
@@ -755,21 +778,72 @@ function hideHoverOrbit() {
   hoveredSatNum = null;
 }
 
+const HIGHLIGHT_COLOR = new THREE.Color(0xffffff); // ピン済み衛星は白
+
+function setSatColor(satnum, color) {
+  const idx = satellites.findIndex(s => s.satrec.satnum === satnum);
+  if (idx < 0 || !satColors) return;
+  satColors[idx*3]   = color.r;
+  satColors[idx*3+1] = color.g;
+  satColors[idx*3+2] = color.b;
+  if (satPoints) satPoints.geometry.attributes.color.needsUpdate = true;
+}
+
 function togglePinnedOrbit(sat) {
   const key = sat.satrec.satnum;
   if (pinnedOrbits.has(key)) {
-    // 固定解除
-    const line = pinnedOrbits.get(key);
-    scene.remove(line); line.geometry.dispose();
+    // 固定解除 → 元の軌道種別色に戻す
+    const entry = pinnedOrbits.get(key);
+    scene.remove(entry.line); entry.line.geometry.dispose();
     pinnedOrbits.delete(key);
+    setSatColor(key, ORBIT_COLORS[sat.orbitClass || 'LEO']);
   } else {
-    // 固定追加（ホバーラインを削除してから明るいラインを追加）
+    // 固定追加 → 白にハイライト
     hideHoverOrbit();
     const color = ORBIT_COLORS[sat.orbitClass || 'LEO'];
     const line = createOrbitLine(sat.satrec, color, 0.85);
-    if (line) { scene.add(line); pinnedOrbits.set(key, line); }
+    if (line) { scene.add(line); pinnedOrbits.set(key, { line, sat }); }
+    setSatColor(key, HIGHLIGHT_COLOR);
   }
-  updatePinHint(sat.satrec.satnum);
+  updatePinHint(key);
+  updatePinnedList();
+}
+
+function updatePinnedList() {
+  const wrap = document.getElementById('pinned-list-wrap');
+  const list = document.getElementById('pinned-list');
+  if (pinnedOrbits.size === 0) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+  list.innerHTML = '';
+  for (const [satnum, { sat }] of pinnedOrbits) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;padding:2px 0;border-bottom:1px solid rgba(42,74,106,0.4)';
+    row.innerHTML = `<span style="color:var(--accent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px" title="${sat.name}">${sat.name}</span>`
+      + `<span style="color:var(--accent2);cursor:pointer;flex-shrink:0;margin-left:6px" onclick="removePinnedOrbit(${satnum})">✕</span>`;
+    list.appendChild(row);
+  }
+}
+
+function removePinnedOrbit(satnum) {
+  const entry = pinnedOrbits.get(satnum);
+  if (!entry) return;
+  scene.remove(entry.line); entry.line.geometry.dispose();
+  pinnedOrbits.delete(satnum);
+  setSatColor(satnum, ORBIT_COLORS[entry.sat.orbitClass || 'LEO']);
+  updatePinnedList();
+  updatePinHint(satnum);
+}
+
+function onSizeSlider(val) {
+  const v = Number(val);
+  // 1〜10 → 0.02〜0.12
+  const size = 0.02 + (v - 1) / 9 * 0.10;
+  if (satPoints) satPoints.material.size = size;
+  const labels = ['XS','S','M','L','XL'];
+  document.getElementById('size-val').textContent = labels[Math.round((v-1)/9*4)] || 'M';
 }
 
 function updatePinHint(satnum) {
