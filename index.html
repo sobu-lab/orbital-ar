@@ -572,19 +572,27 @@
     //  TLE取得
     // ━━━━━━━━━━━━━━━━━━━━━━━━
 
-    // ★ Cloud Run デプロイ後にURLを差し替える
-    const PROXY_URL = 'YOUR_CLOUD_RUN_URL/satellites';
+    const TLE_SOURCES = [
+      'https://celestrak.org/GP/query?GROUP=visual&FORMAT=json',
+      'https://celestrak.org/GP/query?GROUP=active&FORMAT=json',
+    ];
 
     async function fetchTLE() {
       let data;
-      try {
-        const res = await fetch(PROXY_URL, { signal: AbortSignal.timeout(30000) });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        data = await res.json();
-      } catch (e) {
+      let lastErr;
+      for (const url of TLE_SOURCES) {
+        try {
+          const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          data = await res.json();
+          break;
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      if (!data) {
         if (satellites.length === 0) {
-          showError('衛星データの取得に失敗しました。<br>' + e.message +
-            '<br><br><span style="font-size:9px;opacity:0.6">PROXY: ' + PROXY_URL + '</span>');
+          showError('衛星データの取得に失敗しました。<br>' + (lastErr ? lastErr.message : ''));
         }
         return;
       }
