@@ -446,23 +446,28 @@
     // ━━━━━━━━━━━━━━━━━━━━━━━━
     //  起動
     // ━━━━━━━━━━━━━━━━━━━━━━━━
-    async function startApp() {
-      // ★ iOS: センサー許可をユーザージェスチャーの直後に取る（awaitを挟まず最初に）
+    function startApp() {
+      // iOS13+: requestPermission() はユーザージェスチャーの同期コンテキストで呼ぶ必要がある
       if (typeof DeviceOrientationEvent !== 'undefined' &&
         typeof DeviceOrientationEvent.requestPermission === 'function') {
-        let perm;
-        try {
-          perm = await DeviceOrientationEvent.requestPermission();
-        } catch (e) {
-          try { perm = await DeviceOrientationEvent.requestPermission(); } catch (_) { }
-        }
-        if (perm !== 'granted') {
-          alert('センサーの許可が必要です。\n設定 → プライバシー → モーションとフィットネス をオンにしてください。');
-          return;
-        }
+        DeviceOrientationEvent.requestPermission()
+          .then(perm => {
+            if (perm !== 'granted') {
+              alert('センサーの許可が必要です。\n設定 → プライバシー → モーションとフィットネス をオンにしてください。');
+              return;
+            }
+            startAppAfterPermission();
+          })
+          .catch(e => {
+            showError('センサー許可エラー: ' + e.message);
+          });
+      } else {
+        startAppAfterPermission();
       }
+    }
 
-      // センサーリスナー登録（許可取得直後）
+    async function startAppAfterPermission() {
+      // センサーリスナー登録
       window.addEventListener('deviceorientationabsolute', onOrientation, true);
       window.addEventListener('deviceorientation', onOrientation, true);
 
