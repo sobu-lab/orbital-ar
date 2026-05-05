@@ -424,30 +424,88 @@ function parseTLEText(text) {
   return result;
 }
 
-// CelesTrak から TLE データ取得（複数グループを結合）
+const CACHE_KEY = 'orbital_tle_cache';
+const CACHE_TTL = 2 * 60 * 60 * 1000; // 2時間（CelesTrakのレート制限に合わせる）
+
+// キャッシュから読み込み
+function loadCache() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const { ts, data } = JSON.parse(raw);
+    if (Date.now() - ts < CACHE_TTL) return data;
+  } catch (e) { }
+  return null;
+}
+
+// キャッシュへ保存
+function saveCache(data) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data }));
+  } catch (e) { }
+}
+
+// グループURLを1つ取得してパース
+async function fetchGroup(group) {
+  const url = `https://celestrak.org/NORAD/elements/gp.php?GROUP=${group}&FORMAT=tle`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
+  // 403 = レート制限（データ未更新）→ 空配列を返す（エラーではない）
+  if (res.status === 403) return [];
+  if (!res.ok) throw new Error('HTTP ' + res.status + ' (' + group + ')');
+  const text = await res.text();
+  return parseTLEText(text);
+}
+
+// CelesTrak から TLE データ取得
 async function fetchTLE() {
-  const sources = [
-    'https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle',
-  ];
+  // キャッシュがあれば使用
+  const cached = loadCache();
+  if (cached && cached.length > 0) {
+    setLoadMsg('キャッシュからデータ読み込み中...', 40);
+    return cached;
+  }
 
   setLoadMsg('CelesTrakからデータ取得中...', 10);
 
-  for (const url of sources) {
-    try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const text = await res.text();
-      const data = parseTLEText(text);
-      if (data.length > 0) {
-        setLoadMsg('データ受信完了: ' + data.length + '機', 50);
-        return data;
-      }
-    } catch (e) {
-      console.warn('TLE fetch failed:', url, e.message);
+  // まず active グループ（全アクティブ衛星）を試みる
+  try {
+    const data = await fetchGroup('active');
+    if (data.length > 0) {
+      setLoadMsg('データ受信完了: ' + data.length + '機', 50);
+      saveCache(data);
+      return data;
     }
+  } catch (e) {
+    console.warn('active group failed:', e.message);
   }
 
-  showError('衛星データの取得に失敗しました。\nネットワーク接続を確認してください。');
+  // フォールバック: 複数グループを並列取得して結合
+  setLoadMsg('複数グループから取得中...', 20);
+  const groups = ['starlink', 'oneweb', 'planet', 'stations', 'iridium-NEXT',
+                  'gnss', 'resource', 'weather', 'intelsat', 'ses',
+                  'globalstar', 'sarsat', 'cubesat', 'visual'];
+  try {
+    const results = await Promise.allSettled(groups.map(g => fetchGroup(g)));
+    const combined = [];
+    const seen = new Set();
+    for (const r of results) {
+      if (r.status === 'fulfilled') {
+        for (const sat of r.value) {
+          const key = sat.TLE_LINE1.slice(2, 7); // NORAD番号でdedup
+          if (!seen.has(key)) { seen.add(key); combined.push(sat); }
+        }
+      }
+    }
+    if (combined.length > 0) {
+      setLoadMsg('データ受信完了: ' + combined.length + '機', 50);
+      saveCache(combined);
+      return combined;
+    }
+  } catch (e) {
+    console.warn('fallback fetch failed:', e.message);
+  }
+
+  showError('衛星データの取得に失敗しました。\nしばらく待ってからリロードしてください。\n(CelesTrakは2時間に1回の制限があります)');
   return [];
 }
 
