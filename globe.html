@@ -244,6 +244,13 @@
     margin-bottom: 6px;
   }
   #hover-info .sat-detail { color: var(--text); margin-bottom: 2px; font-size: 10px; }
+  #hi-pin {
+    margin-top: 6px;
+    font-size: 9px;
+    color: var(--accent2);
+    letter-spacing: 1px;
+    display: none;
+  }
 
   #loading {
     position: fixed;
@@ -376,9 +383,10 @@
     <div class="sat-detail" id="hi-lon">経度: -</div>
     <div class="sat-detail" id="hi-orbit">軌道種別: -</div>
     <div class="sat-detail" id="hi-group">グループ: -</div>
+    <div id="hi-pin">▶ クリックで軌道を固定/解除</div>
   </div>
 
-  <div id="guide">ドラッグ: 回転 ／ ホイール: ズーム ／ ホバー: 衛星情報</div>
+  <div id="guide">ドラッグ: 回転 ／ ホイール: ズーム ／ ホバー: 軌道プレビュー ／ クリック: 軌道を固定</div>
   <div id="error-msg"></div>
 </div>
 
@@ -418,9 +426,15 @@ let satellites = [];           // 現在表示中の衛星配列
 let satPositions, satColors, satPoints;
 let raycaster, mouse;
 let isDragging = false, prevMouse = { x: 0, y: 0 };
+let mouseDownPos = { x: 0, y: 0 };
 let spherical = { theta: 0, phi: Math.PI / 2, radius: 25 };
 let targetSpherical = { ...spherical };
 let fpsCounter = 0, fpsTime = 0;
+
+// 軌道ライン管理
+let hoverOrbitLine = null;          // ホバー中の一時ライン
+let hoveredSatNum = null;           // 現在ホバー中のNORAD番号
+const pinnedOrbits = new Map();     // satnum → THREE.Line（固定済み軌道）
 
 // グループごとの衛星データ: Map<groupId, [{satrec, name, orbitClass, group}]>
 const groupSatData = new Map();
@@ -578,9 +592,19 @@ function initScene() {
   mouse = new THREE.Vector2();
 
   const cvs = renderer.domElement;
-  cvs.addEventListener('mousedown', e => { isDragging = true; prevMouse = { x: e.clientX, y: e.clientY }; });
+  cvs.addEventListener('mousedown', e => {
+    isDragging = true;
+    prevMouse = { x: e.clientX, y: e.clientY };
+    mouseDownPos = { x: e.clientX, y: e.clientY };
+  });
   cvs.addEventListener('mousemove', onMouseMove);
-  cvs.addEventListener('mouseup', () => isDragging = false);
+  cvs.addEventListener('mouseup', e => {
+    isDragging = false;
+    // ドラッグ距離が小さければクリックとみなす
+    const dx = e.clientX - mouseDownPos.x;
+    const dy = e.clientY - mouseDownPos.y;
+    if (Math.sqrt(dx*dx + dy*dy) < 5) onCanvasClick();
+  });
   cvs.addEventListener('wheel', e => {
     targetSpherical.radius = Math.max(8, Math.min(80, targetSpherical.radius + e.deltaY * 0.02));
   }, { passive: true });
@@ -664,6 +688,79 @@ function updatePositions() {
   document.getElementById('lc-geo').textContent = counts.GEO;
   document.getElementById('lc-heo').textContent = counts.HEO;
   document.getElementById('feed-bar').style.width = '100%';
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+//  軌道ライン
+// ━━━━━━━━━━━━━━━━━━━━━━━━
+function calcOrbitPoints(satrec, numPoints = 120) {
+  // satrec.no = 平均運動 (rad/min) → 周期(分) = 2π / no
+  const periodMin = (2 * Math.PI) / satrec.no;
+  const now = new Date();
+  const pts = [];
+  for (let i = 0; i <= numPoints; i++) {
+    const t = new Date(now.getTime() + (i / numPoints) * periodMin * 60000);
+    try {
+      const pv = satellite.propagate(satrec, t);
+      if (pv.position) {
+        pts.push(new THREE.Vector3(pv.position.x * SCALE, pv.position.z * SCALE, pv.position.y * SCALE));
+      }
+    } catch (e) { }
+  }
+  return pts;
+}
+
+function createOrbitLine(satrec, color, opacity) {
+  const pts = calcOrbitPoints(satrec);
+  if (pts.length < 2) return null;
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
+  return new THREE.Line(geo, mat);
+}
+
+function showHoverOrbit(sat) {
+  if (hoveredSatNum === sat.satrec.satnum) return; // 同じ衛星なら再生成しない
+  hideHoverOrbit();
+  hoveredSatNum = sat.satrec.satnum;
+  // 固定済みなら別途表示不要
+  if (pinnedOrbits.has(hoveredSatNum)) return;
+  const color = ORBIT_COLORS[sat.orbitClass || 'LEO'];
+  hoverOrbitLine = createOrbitLine(sat.satrec, color, 0.35);
+  if (hoverOrbitLine) scene.add(hoverOrbitLine);
+}
+
+function hideHoverOrbit() {
+  if (hoverOrbitLine) { scene.remove(hoverOrbitLine); hoverOrbitLine.geometry.dispose(); hoverOrbitLine = null; }
+  hoveredSatNum = null;
+}
+
+function togglePinnedOrbit(sat) {
+  const key = sat.satrec.satnum;
+  if (pinnedOrbits.has(key)) {
+    // 固定解除
+    const line = pinnedOrbits.get(key);
+    scene.remove(line); line.geometry.dispose();
+    pinnedOrbits.delete(key);
+  } else {
+    // 固定追加（ホバーラインを削除してから明るいラインを追加）
+    hideHoverOrbit();
+    const color = ORBIT_COLORS[sat.orbitClass || 'LEO'];
+    const line = createOrbitLine(sat.satrec, color, 0.85);
+    if (line) { scene.add(line); pinnedOrbits.set(key, line); }
+  }
+  updatePinHint(sat.satrec.satnum);
+}
+
+function updatePinHint(satnum) {
+  const el = document.getElementById('hi-pin');
+  if (!el) return;
+  if (pinnedOrbits.has(satnum)) {
+    el.textContent = '★ 軌道固定中 — クリックで解除';
+    el.style.color = 'var(--accent)';
+  } else {
+    el.textContent = '▶ クリックで軌道を固定/解除';
+    el.style.color = 'var(--accent2)';
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━
@@ -795,6 +892,8 @@ function onMouseMove(e) {
   prevMouse = { x: e.clientX, y: e.clientY };
 }
 
+let lastHoveredSat = null;
+
 function checkHover(cx, cy) {
   if (!satPoints || satellites.length === 0) return;
   raycaster.setFromCamera(mouse, camera);
@@ -803,6 +902,8 @@ function checkHover(cx, cy) {
   if (hits.length > 0) {
     const sat = satellites[hits[0].index];
     if (!sat) return;
+    lastHoveredSat = sat;
+    showHoverOrbit(sat);
     try {
       const pv = satellite.propagate(sat.satrec, new Date());
       if (pv.position) {
@@ -814,14 +915,22 @@ function checkHover(cx, cy) {
         document.getElementById('hi-lon').textContent   = '経度: ' + satellite.degreesLong(geo.longitude).toFixed(2) + '°';
         document.getElementById('hi-orbit').textContent = '軌道: ' + sat.orbitClass;
         document.getElementById('hi-group').textContent = 'グループ: ' + sat.group;
+        document.getElementById('hi-pin').style.display = 'block';
+        updatePinHint(sat.satrec.satnum);
         info.style.display = 'block';
         info.style.left = (cx + 15) + 'px';
         info.style.top  = (cy - 10) + 'px';
       }
     } catch (e) { }
   } else {
+    lastHoveredSat = null;
+    hideHoverOrbit();
     info.style.display = 'none';
   }
+}
+
+function onCanvasClick() {
+  if (lastHoveredSat) togglePinnedOrbit(lastHoveredSat);
 }
 
 function updateClock() {
