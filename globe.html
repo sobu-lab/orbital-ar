@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ORBITAL - 衛星リアルタイム追跡</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #000408;
+    --panel: rgba(0, 20, 40, 0.85);
+    --accent: #00d4ff;
+    --accent2: #ff6b35;
+    --green: #00ff88;
+    --text: #a0c8e0;
+    --dim: #2a4a6a;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  #canvas-container { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+
+  #title {
+    position: absolute;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    pointer-events: none;
+  }
+  #title h1 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 28px;
+    font-weight: 900;
+    letter-spacing: 12px;
+    color: var(--accent);
+    text-shadow: 0 0 30px rgba(0,212,255,0.6);
+  }
+  #title .sub {
+    font-size: 10px;
+    letter-spacing: 4px;
+    color: var(--dim);
+    margin-top: 4px;
+  }
+
+  #panel-left {
+    position: absolute;
+    top: 100px;
+    left: 20px;
+    width: 220px;
+    background: var(--panel);
+    border: 1px solid var(--dim);
+    border-left: 2px solid var(--accent);
+    padding: 16px;
+    backdrop-filter: blur(8px);
+    pointer-events: all;
+  }
+  .panel-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 9px;
+    letter-spacing: 3px;
+    color: var(--accent);
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--dim);
+    padding-bottom: 8px;
+  }
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    font-size: 11px;
+  }
+  .stat-label { color: var(--dim); }
+  .stat-val {
+    color: var(--green);
+    font-size: 14px;
+    font-weight: bold;
+    text-shadow: 0 0 8px rgba(0,255,136,0.4);
+  }
+
+  #legend {
+    margin-top: 16px;
+    border-top: 1px solid var(--dim);
+    padding-top: 12px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 7px;
+    font-size: 10px;
+    color: var(--text);
+    padding: 3px 0;
+  }
+  .legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .legend-count { margin-left: auto; color: var(--dim); font-size: 9px; }
+
+  #panel-right {
+    position: absolute;
+    top: 100px;
+    right: 20px;
+    width: 200px;
+    background: var(--panel);
+    border: 1px solid var(--dim);
+    border-right: 2px solid var(--accent2);
+    padding: 16px;
+    backdrop-filter: blur(8px);
+  }
+
+  #clock {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 18px;
+    color: var(--accent);
+    text-shadow: 0 0 15px rgba(0,212,255,0.5);
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+  }
+  #date-str { font-size: 10px; color: var(--dim); margin-bottom: 14px; }
+
+  .status-bar { margin-bottom: 10px; }
+  .status-label { font-size: 9px; color: var(--dim); margin-bottom: 3px; letter-spacing: 2px; }
+  .bar-track { height: 3px; background: var(--dim); position: relative; overflow: hidden; }
+  .bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--green));
+    transition: width 0.5s;
+    box-shadow: 0 0 6px rgba(0,212,255,0.6);
+  }
+
+  #hover-info {
+    position: absolute;
+    background: rgba(0,10,20,0.95);
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    padding: 10px 14px;
+    font-size: 11px;
+    pointer-events: none;
+    display: none;
+    min-width: 180px;
+    box-shadow: 0 0 20px rgba(0,212,255,0.2);
+  }
+  #hover-info .sat-name {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 12px;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  #hover-info .sat-detail { color: var(--text); margin-bottom: 2px; font-size: 10px; }
+
+  #loading {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  #loading h2 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 22px;
+    letter-spacing: 8px;
+    color: var(--accent);
+    margin-bottom: 30px;
+    text-shadow: 0 0 30px rgba(0,212,255,0.5);
+  }
+  #loading-bar-wrap {
+    width: 300px;
+    height: 2px;
+    background: var(--dim);
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  #loading-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--green));
+    width: 0%;
+    transition: width 0.3s;
+    box-shadow: 0 0 10px var(--accent);
+  }
+  #loading-msg { font-size: 11px; color: var(--dim); letter-spacing: 3px; }
+
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 200;
+  }
+
+  #guide {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: var(--dim);
+    letter-spacing: 2px;
+    text-align: center;
+  }
+
+  #error-msg {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%,-50%);
+    color: var(--accent2);
+    font-size: 12px;
+    text-align: center;
+    display: none;
+    white-space: pre-line;
+    line-height: 1.8;
+  }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <h2>ORBITAL</h2>
+  <div id="loading-bar-wrap"><div id="loading-bar"></div></div>
+  <div id="loading-msg">衛星データ取得中...</div>
+</div>
+
+<div id="canvas-container"></div>
+
+<div id="hud">
+  <div id="title">
+    <h1>ORBITAL</h1>
+    <div class="sub">REAL-TIME SATELLITE TRACKER</div>
+  </div>
+
+  <div id="panel-left">
+    <div class="panel-title">SATELLITE STATUS</div>
+    <div class="stat-row"><span class="stat-label">TRACKED</span><span class="stat-val" id="stat-total">-</span></div>
+    <div class="stat-row"><span class="stat-label">LEO</span><span class="stat-val" id="stat-leo">-</span></div>
+    <div class="stat-row"><span class="stat-label">MEO</span><span class="stat-val" id="stat-meo">-</span></div>
+    <div class="stat-row"><span class="stat-label">GEO</span><span class="stat-val" id="stat-geo">-</span></div>
+    <div class="stat-row"><span class="stat-label">HEO</span><span class="stat-val" id="stat-heo">-</span></div>
+    <div id="legend">
+      <div class="panel-title">ORBIT CLASS</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#00d4ff;box-shadow:0 0 4px #00d4ff"></div>LEO &lt;2000km<span class="legend-count" id="lc-leo"></span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#00ff88;box-shadow:0 0 4px #00ff88"></div>MEO 2k-35k km<span class="legend-count" id="lc-meo"></span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#ffcc00;box-shadow:0 0 4px #ffcc00"></div>GEO ~36000km<span class="legend-count" id="lc-geo"></span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#ff6b35;box-shadow:0 0 4px #ff6b35"></div>HEO 高楕円軌道<span class="legend-count" id="lc-heo"></span></div>
+    </div>
+  </div>
+
+  <div id="panel-right">
+    <div class="panel-title">UTC TIME</div>
+    <div id="clock">00:00:00</div>
+    <div id="date-str">-</div>
+    <div class="status-bar">
+      <div class="status-label">DATA FEED</div>
+      <div class="bar-track"><div class="bar-fill" id="feed-bar" style="width:0%"></div></div>
+    </div>
+    <div class="status-bar">
+      <div class="status-label">RENDER FPS</div>
+      <div class="bar-track"><div class="bar-fill" id="fps-bar" style="width:0%;background:linear-gradient(90deg,#ff6b35,#ffcc00)"></div></div>
+    </div>
+    <div class="stat-row" style="margin-top:10px"><span class="stat-label">FPS</span><span class="stat-val" id="fps-val">-</span></div>
+    <div class="stat-row"><span class="stat-label">UPDATE</span><span class="stat-val" id="update-interval">5s</span></div>
+  </div>
+
+  <div id="hover-info">
+    <div class="sat-name" id="hi-name">-</div>
+    <div class="sat-detail" id="hi-alt">高度: -</div>
+    <div class="sat-detail" id="hi-lat">緯度: -</div>
+    <div class="sat-detail" id="hi-lon">経度: -</div>
+    <div class="sat-detail" id="hi-orbit">軌道種別: -</div>
+  </div>
+
+  <div id="guide">ドラッグ: 回転 ／ ホイール: ズーム ／ ホバー: 衛星情報</div>
+  <div id="error-msg"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/satellite.js/4.0.0/satellite.min.js"></script>
+
+<script>
+const EARTH_RADIUS = 6371;
+const SCALE = 1 / 1000;
+const EARTH_R_UNIT = EARTH_RADIUS * SCALE;
+const UPDATE_INTERVAL = 5000;
+
+let scene, camera, renderer, earthMesh;
+let satellites = [];
+let satPositions, satColors, satPoints;
+let raycaster, mouse;
+let isDragging = false, prevMouse = { x: 0, y: 0 };
+let spherical = { theta: 0, phi: Math.PI / 2, radius: 25 };
+let targetSpherical = { ...spherical };
+let fpsCounter = 0, fpsTime = 0, fps = 0;
+
+function setLoadMsg(msg, pct) {
+  document.getElementById('loading-msg').textContent = msg;
+  document.getElementById('loading-bar').style.width = pct + '%';
+}
+
+function classifyOrbit(altKm) {
+  if (altKm < 2000)         return 'LEO';
+  if (altKm < 35786 - 500)  return 'MEO';
+  if (altKm < 35786 + 1000) return 'GEO';
+  return 'HEO';
+}
+
+const ORBIT_COLORS = {
+  LEO: new THREE.Color(0x00d4ff),
+  MEO: new THREE.Color(0x00ff88),
+  GEO: new THREE.Color(0xffcc00),
+  HEO: new THREE.Color(0xff6b35),
+};
+
+function initScene() {
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.01, 500);
+  camera.position.set(0, 0, spherical.radius);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setClearColor(0x000408);
+  document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+  // 星空
+  const starGeo = new THREE.BufferGeometry();
+  const starPos = new Float32Array(6000);
+  for (let i = 0; i < 2000; i++) {
+    const r = 300 + Math.random() * 100;
+    const t = Math.random() * Math.PI * 2;
+    const p = Math.acos(2 * Math.random() - 1);
+    starPos[i*3]   = r * Math.sin(p) * Math.cos(t);
+    starPos[i*3+1] = r * Math.cos(p);
+    starPos[i*3+2] = r * Math.sin(p) * Math.sin(t);
+  }
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+  scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.3, sizeAttenuation: true })));
+
+  // 地球
+  earthMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(EARTH_R_UNIT, 64, 64),
+    new THREE.MeshPhongMaterial({ color: 0x0a1a2e, emissive: 0x001020, specular: 0x002244, shininess: 20 })
+  );
+  scene.add(earthMesh);
+
+  // ワイヤーフレーム
+  scene.add(new THREE.Mesh(
+    new THREE.SphereGeometry(EARTH_R_UNIT * 1.001, 24, 24),
+    new THREE.MeshBasicMaterial({ color: 0x003366, wireframe: true, transparent: true, opacity: 0.15 })
+  ));
+
+  // 大気光
+  scene.add(new THREE.Mesh(
+    new THREE.SphereGeometry(EARTH_R_UNIT * 1.04, 64, 64),
+    new THREE.MeshPhongMaterial({ color: 0x0066aa, transparent: true, opacity: 0.08 })
+  ));
+
+  // 赤道リング
+  scene.add(new THREE.Mesh(
+    new THREE.TorusGeometry(EARTH_R_UNIT * 1.005, 0.002, 4, 200),
+    new THREE.MeshBasicMaterial({ color: 0x004466, transparent: true, opacity: 0.4 })
+  ));
+
+  scene.add(new THREE.AmbientLight(0x111133, 2));
+  const sun = new THREE.DirectionalLight(0x6699ff, 1.5);
+  sun.position.set(50, 20, 30);
+  scene.add(sun);
+
+  raycaster = new THREE.Raycaster();
+  raycaster.params.Points.threshold = 0.08;
+  mouse = new THREE.Vector2();
+
+  const cvs = renderer.domElement;
+  cvs.addEventListener('mousedown', e => { isDragging = true; prevMouse = { x: e.clientX, y: e.clientY }; });
+  cvs.addEventListener('mousemove', onMouseMove);
+  cvs.addEventListener('mouseup', () => isDragging = false);
+  cvs.addEventListener('wheel', e => {
+    targetSpherical.radius = Math.max(8, Math.min(80, targetSpherical.radius + e.deltaY * 0.02));
+  }, { passive: true });
+  window.addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+}
+
+// TLEテキスト（3行形式）をパース
+function parseTLEText(text) {
+  const lines = text.trim().split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  const result = [];
+  for (let i = 0; i + 2 < lines.length; i += 3) {
+    const name = lines[i];
+    const line1 = lines[i + 1];
+    const line2 = lines[i + 2];
+    if (line1.startsWith('1 ') && line2.startsWith('2 ')) {
+      result.push({ OBJECT_NAME: name, TLE_LINE1: line1, TLE_LINE2: line2 });
+    }
+  }
+  return result;
+}
+
+// CelesTrak から TLE データ取得
+async function fetchTLE() {
+  const sources = [
+    'https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=tle',
+    'https://celestrak.org/NORAD/elements/gp.php?GROUP=brightest&FORMAT=tle',
+  ];
+
+  setLoadMsg('CelesTrakからデータ取得中...', 10);
+
+  for (const url of sources) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const text = await res.text();
+      const data = parseTLEText(text);
+      if (data.length > 0) {
+        setLoadMsg('データ受信完了: ' + data.length + '機', 50);
+        return data;
+      }
+    } catch (e) {
+      console.warn('TLE fetch failed:', url, e.message);
+    }
+  }
+
+  showError('衛星データの取得に失敗しました。\nネットワーク接続を確認してください。');
+  return [];
+}
+
+function showError(msg) {
+  const el = document.getElementById('error-msg');
+  el.textContent = msg;
+  el.style.display = 'block';
+  document.getElementById('loading').style.display = 'none';
+}
+
+function buildSatellites(tleData) {
+  setLoadMsg('衛星軌道を計算中...', 60);
+  const parsed = [];
+  for (const gp of tleData) {
+    try {
+      const satrec = satellite.twoline2satrec(gp.TLE_LINE1, gp.TLE_LINE2);
+      parsed.push({ satrec, name: gp.OBJECT_NAME || '不明', orbitClass: 'LEO' });
+    } catch (e) { }
+  }
+  return parsed;
+}
+
+function buildPointsGeometry(sats) {
+  const n = sats.length;
+  satPositions = new Float32Array(n * 3);
+  satColors    = new Float32Array(n * 3);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(satPositions, 3));
+  geo.setAttribute('color',    new THREE.BufferAttribute(satColors, 3));
+
+  satPoints = new THREE.Points(geo, new THREE.PointsMaterial({
+    size: 0.04,
+    vertexColors: true,
+    sizeAttenuation: true,
+    transparent: true,
+    opacity: 0.9,
+  }));
+  scene.add(satPoints);
+}
+
+let counts = { LEO: 0, MEO: 0, GEO: 0, HEO: 0 };
+function updatePositions() {
+  const now = new Date();
+  counts = { LEO: 0, MEO: 0, GEO: 0, HEO: 0 };
+  let valid = 0;
+
+  for (let i = 0; i < satellites.length; i++) {
+    const sat = satellites[i];
+    try {
+      const pv = satellite.propagate(sat.satrec, now);
+      if (!pv.position) { satPositions[i*3] = satPositions[i*3+1] = satPositions[i*3+2] = 0; continue; }
+
+      const p = pv.position;
+      const altKm = Math.sqrt(p.x*p.x + p.y*p.y + p.z*p.z) - EARTH_RADIUS;
+      sat.orbitClass = classifyOrbit(altKm);
+      counts[sat.orbitClass]++;
+
+      satPositions[i*3]   = p.x * SCALE;
+      satPositions[i*3+1] = p.z * SCALE;
+      satPositions[i*3+2] = p.y * SCALE;
+
+      const c = ORBIT_COLORS[sat.orbitClass];
+      satColors[i*3]   = c.r;
+      satColors[i*3+1] = c.g;
+      satColors[i*3+2] = c.b;
+      valid++;
+    } catch (e) {
+      satPositions[i*3] = satPositions[i*3+1] = satPositions[i*3+2] = 0;
+    }
+  }
+
+  satPoints.geometry.attributes.position.needsUpdate = true;
+  satPoints.geometry.attributes.color.needsUpdate = true;
+
+  document.getElementById('stat-total').textContent = valid.toLocaleString();
+  document.getElementById('stat-leo').textContent = counts.LEO.toLocaleString();
+  document.getElementById('stat-meo').textContent = counts.MEO.toLocaleString();
+  document.getElementById('stat-geo').textContent = counts.GEO.toLocaleString();
+  document.getElementById('stat-heo').textContent = counts.HEO.toLocaleString();
+  document.getElementById('lc-leo').textContent = counts.LEO;
+  document.getElementById('lc-meo').textContent = counts.MEO;
+  document.getElementById('lc-geo').textContent = counts.GEO;
+  document.getElementById('lc-heo').textContent = counts.HEO;
+  document.getElementById('feed-bar').style.width = '100%';
+}
+
+function onMouseMove(e) {
+  mouse.x = (e.clientX / innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+  checkHover(e.clientX, e.clientY);
+
+  if (!isDragging) return;
+  const dx = e.clientX - prevMouse.x;
+  const dy = e.clientY - prevMouse.y;
+  targetSpherical.theta -= dx * 0.005;
+  targetSpherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, targetSpherical.phi - dy * 0.005));
+  prevMouse = { x: e.clientX, y: e.clientY };
+}
+
+function checkHover(cx, cy) {
+  if (!satPoints) return;
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObject(satPoints);
+  const info = document.getElementById('hover-info');
+  if (hits.length > 0) {
+    const sat = satellites[hits[0].index];
+    if (!sat) return;
+    try {
+      const pv = satellite.propagate(sat.satrec, new Date());
+      if (pv.position) {
+        const gmst = satellite.gstime(new Date());
+        const geo = satellite.eciToGeodetic(pv.position, gmst);
+        document.getElementById('hi-name').textContent = sat.name;
+        document.getElementById('hi-alt').textContent  = '高度: ' + geo.height.toFixed(0) + ' km';
+        document.getElementById('hi-lat').textContent  = '緯度: ' + satellite.degreesLat(geo.latitude).toFixed(2) + '°';
+        document.getElementById('hi-lon').textContent  = '経度: ' + satellite.degreesLong(geo.longitude).toFixed(2) + '°';
+        document.getElementById('hi-orbit').textContent = '軌道: ' + sat.orbitClass;
+        info.style.display = 'block';
+        info.style.left = (cx + 15) + 'px';
+        info.style.top  = (cy - 10) + 'px';
+      }
+    } catch (e) { }
+  } else {
+    info.style.display = 'none';
+  }
+}
+
+function updateClock() {
+  const now = new Date();
+  const h = String(now.getUTCHours()).padStart(2,'0');
+  const m = String(now.getUTCMinutes()).padStart(2,'0');
+  const s = String(now.getUTCSeconds()).padStart(2,'0');
+  document.getElementById('clock').textContent = h+':'+m+':'+s;
+  document.getElementById('date-str').textContent =
+    now.getUTCFullYear()+'.'+(now.getUTCMonth()+1).toString().padStart(2,'0')+'.'+
+    now.getUTCDate().toString().padStart(2,'0')+' UTC';
+}
+
+let lastUpdate = 0;
+function animate(ts) {
+  requestAnimationFrame(animate);
+
+  spherical.theta  += (targetSpherical.theta  - spherical.theta)  * 0.08;
+  spherical.phi    += (targetSpherical.phi    - spherical.phi)    * 0.08;
+  spherical.radius += (targetSpherical.radius - spherical.radius) * 0.08;
+
+  const { radius: r, phi: p, theta: t } = spherical;
+  camera.position.set(r*Math.sin(p)*Math.sin(t), r*Math.cos(p), r*Math.sin(p)*Math.cos(t));
+  camera.lookAt(0, 0, 0);
+
+  earthMesh.rotation.y += 0.0001;
+
+  if (ts - lastUpdate > UPDATE_INTERVAL) {
+    updatePositions();
+    lastUpdate = ts;
+  }
+
+  updateClock();
+
+  fpsCounter++;
+  if (ts - fpsTime > 1000) {
+    fps = fpsCounter; fpsCounter = 0; fpsTime = ts;
+    document.getElementById('fps-val').textContent = fps;
+    document.getElementById('fps-bar').style.width = Math.min(100, fps / 60 * 100) + '%';
+  }
+
+  renderer.render(scene, camera);
+}
+
+async function main() {
+  initScene();
+
+  const tleData = await fetchTLE();
+  if (!tleData || tleData.length === 0) return;
+
+  setLoadMsg('衛星データをパース中...', 65);
+  satellites = buildSatellites(tleData);
+
+  setLoadMsg('3Dオブジェクト構築中...', 80);
+  buildPointsGeometry(satellites);
+
+  setLoadMsg('初期位置を計算中...', 90);
+  updatePositions();
+
+  setLoadMsg('完了', 100);
+  setTimeout(() => { document.getElementById('loading').style.display = 'none'; }, 400);
+
+  requestAnimationFrame(animate);
+}
+
+main().catch(e => showError('予期しないエラー: ' + e.message));
+</script>
+</body>
+</html>
