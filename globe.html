@@ -693,19 +693,40 @@ function updatePositions() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━
 //  軌道ライン
 // ━━━━━━━━━━━━━━━━━━━━━━━━
-function calcOrbitPoints(satrec, numPoints = 120) {
-  // satrec.no = 平均運動 (rad/min) → 周期(分) = 2π / no
-  const periodMin = (2 * Math.PI) / satrec.no;
-  const now = new Date();
+function calcOrbitPoints(satrec, numPoints = 180) {
+  // ケプラー楕円を軌道要素から直接計算（SGP4摂動を使わないため完全に閉じる）
+  const GM = 398600.4418; // km³/s²
+  const n  = satrec.no / 60; // rad/min → rad/s
+  const a  = Math.cbrt(GM / (n * n)); // 長半径 (km)
+  const e  = satrec.ecco;             // 離心率
+  const inc  = satrec.inclo;          // 軌道傾斜角 (rad)
+  const raan = satrec.nodeo;          // 昇交点赤経 (rad)
+  const argp = satrec.argpo;          // 近点引数 (rad)
+
+  const cosI = Math.cos(inc), sinI = Math.sin(inc);
+  const cosR = Math.cos(raan), sinR = Math.sin(raan);
+  const cosW = Math.cos(argp), sinW = Math.sin(argp);
+
+  // 近点基底ベクトル（ペリフォーカル → ECI変換行列の列）
+  const Px = cosR*cosW - sinR*sinW*cosI;
+  const Py = sinR*cosW + cosR*sinW*cosI;
+  const Pz = sinW*sinI;
+  const Qx = -cosR*sinW - sinR*cosW*cosI;
+  const Qy = -sinR*sinW + cosR*cosW*cosI;
+  const Qz = cosW*sinI;
+
   const pts = [];
-  for (let i = 0; i <= numPoints; i++) {
-    const t = new Date(now.getTime() + (i / numPoints) * periodMin * 60000);
-    try {
-      const pv = satellite.propagate(satrec, t);
-      if (pv.position) {
-        pts.push(new THREE.Vector3(pv.position.x * SCALE, pv.position.z * SCALE, pv.position.y * SCALE));
-      }
-    } catch (e) { }
+  for (let j = 0; j <= numPoints; j++) {
+    const nu = (j / numPoints) * 2 * Math.PI; // 真近点角 0〜2π
+    const r  = a * (1 - e * e) / (1 + e * Math.cos(nu));
+    const xOrb = r * Math.cos(nu);
+    const yOrb = r * Math.sin(nu);
+    // ECI座標
+    const ex = Px*xOrb + Qx*yOrb;
+    const ey = Py*xOrb + Qy*yOrb;
+    const ez = Pz*xOrb + Qz*yOrb;
+    // ECI → Three.js（Y上、Z手前）
+    pts.push(new THREE.Vector3(ex * SCALE, ez * SCALE, ey * SCALE));
   }
   return pts;
 }
