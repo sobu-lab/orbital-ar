@@ -356,17 +356,22 @@ function initScene() {
   starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
   scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.3, sizeAttenuation: true })));
 
-  // 地球
-  earthMesh = new THREE.Mesh(
-    new THREE.SphereGeometry(EARTH_R_UNIT, 64, 64),
-    new THREE.MeshPhongMaterial({ color: 0x0a1a2e, emissive: 0x001020, specular: 0x002244, shininess: 20 })
-  );
+  // 地球（テクスチャ付き）
+  const earthGeo = new THREE.SphereGeometry(EARTH_R_UNIT, 64, 64);
+  const earthMat = new THREE.MeshPhongMaterial({ color: 0x226699, specular: 0x112244, shininess: 15 });
+  earthMesh = new THREE.Mesh(earthGeo, earthMat);
   scene.add(earthMesh);
 
-  // ワイヤーフレーム
+  // 地球テクスチャを非同期で読み込み（読み込めたら適用）
+  new THREE.TextureLoader().load(
+    'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg',
+    tex => { earthMat.map = tex; earthMat.color.set(0xffffff); earthMat.needsUpdate = true; }
+  );
+
+  // ワイヤーフレーム（テクスチャがある場合は薄く）
   scene.add(new THREE.Mesh(
     new THREE.SphereGeometry(EARTH_R_UNIT * 1.001, 24, 24),
-    new THREE.MeshBasicMaterial({ color: 0x003366, wireframe: true, transparent: true, opacity: 0.15 })
+    new THREE.MeshBasicMaterial({ color: 0x004488, wireframe: true, transparent: true, opacity: 0.08 })
   ));
 
   // 大気光
@@ -419,11 +424,10 @@ function parseTLEText(text) {
   return result;
 }
 
-// CelesTrak から TLE データ取得
+// CelesTrak から TLE データ取得（複数グループを結合）
 async function fetchTLE() {
   const sources = [
-    'https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=tle',
-    'https://celestrak.org/NORAD/elements/gp.php?GROUP=brightest&FORMAT=tle',
+    'https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle',
   ];
 
   setLoadMsg('CelesTrakからデータ取得中...', 10);
